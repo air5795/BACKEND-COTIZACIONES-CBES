@@ -3,6 +3,10 @@
 /node_modules
 
 .env
+.env.development
+.env.production
+.env.local
+.env.*.local
 # Logs
 logs
 *.log
@@ -42,3 +46,6 @@ comprobantes/*
 # recursos - ignorar contenido pero mantener carpeta
 recursos/*
 !recursos/.gitkeep
+
+denuncias/*
+!denuncias/.gitkeep

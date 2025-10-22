@@ -27,4 +27,4 @@ ENV PATH="/usr/lib/libreoffice/program:${PATH}"
 EXPOSE 4001
 
 # Comando para iniciar la aplicación
-CMD ["npm", "run", "start"]
+CMD ["npm", "run", "start:dev"]

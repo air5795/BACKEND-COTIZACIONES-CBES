@@ -1,0 +1,32 @@
+PORT=4002
+
+#DATABASE_URL=postgres://postgres:Postgresql123@10.0.10.224:5432/COTIZACIONES_CBES?sslmode=disable
+
+DB_USER=postgres
+DB_PASS=Postgresql123
+DB_HOST=10.0.10.209
+# DB_PASS=71811452  
+#DB_HOST=host.docker.internal
+DB_PORT=5432
+DB_NAME=COTIZACIONES_DESARROLLO
+
+HASH_SALT=10
+JWT_SECRET=sistmodeloseguridad@gmail.com
+EXPIRES=1h
+
+ARCHIVOS=F:\SistemaCotizaciones\archivos
+
+#Api_URL
+EXTERNAL_API_URL=http://192.168.1.224:8888/saas-siigah/api/v1
+API_USERNAME=SAAS
+API_PASSWORD=718381Sa71
+
+#Api_URL
+EXTERNAL_API_SEGIP_LOGIN=https://test.asuss.gob.bo/asuss-asegurado-api/api/v1/login
+EXTERNAL_API_SEGIP=https://test.asuss.gob.bo/asuss-asegurado-api/api/v2/interoperabilidad/segip/consultaDatosPersona
+API_USERNAME_SEGIP=cbes
+API_PASSWORD_SEGIP=cbes.2022**
+
+#GOOGLE MAPS 
+GOOGLE_MAPS_API_KEY=AIzaSyA_kuyLgukBmvAyF86YQC4Sx84JjizT9vc
+
