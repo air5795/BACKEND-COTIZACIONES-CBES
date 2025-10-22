@@ -1,0 +1,79 @@
+ESTRUCTURA DE LA PLANTILLA PARA REPORTE DE REEMBOLSOS POR GRUPOS
+================================================================
+
+Archivo: reporte_reembolsos_grupos.docx
+
+CONTENIDO DE LA PLANTILLA:
+
+1. ENCABEZADO:
+   - Título: "REPORTE DE REEMBOLSOS POR GRUPOS"
+   - Empresa: {{datos_empresa.nombre_empresa}}
+   - Código Patronal: {{datos_empresa.cod_patronal}}
+   - Período: {{periodo.fecha_inicio}} - {{periodo.fecha_fin}}
+
+2. DATOS DE LA EMPRESA:
+   {{#datos_empresa}}
+   - Código Patronal: {{cod_patronal}}
+   - Nombre: {{nombre_empresa}}
+   {{/datos_empresa}}
+
+3. GRUPOS DE REEMBOLSOS:
+   {{#grupos}}
+   {{#if detalles.length}}
+   
+   ===== GRUPO: {{nombre}} =====
+   Total del Grupo: {{total}}
+   
+   Detalles:
+   {{#detalles}}
+   - Solicitud: {{id_solicitud}}
+   - Fecha: {{fecha_solicitud}}
+   - Trabajador: {{trabajador.nombre}} {{trabajador.apellido}} (CI: {{trabajador.ci}})
+   - Tipo Incapacidad: {{tipo_incapacidad}}
+   - Días: {{dias_incapacidad}}
+   - Monto: {{monto_reembolso}}
+   - Período: {{fecha_inicio}} - {{fecha_fin}}
+   {{/detalles}}
+   
+   {{/if}}
+   {{/grupos}}
+
+4. TOTAL GLOBAL:
+   Total General: {{total_global}}
+
+5. METADATOS:
+   - Fecha de Reporte: {{metadatos.fecha_reporte}}
+   - Hora: {{metadatos.hora_reporte}}
+   - Total de Solicitudes: {{metadatos.total_solicitudes}}
+   - Nota: {{metadatos.nota}}
+
+INSTRUCCIONES PARA CREAR LA PLANTILLA:
+
+1. Crear un nuevo documento Word (.docx)
+2. Guardarlo como "reporte_reembolsos_grupos.docx" en la carpeta reports/
+3. Usar la estructura de texto anterior como guía
+4. Aplicar formato profesional (tablas, estilos, etc.)
+5. Usar las variables de Carbone entre {{}} para los datos dinámicos
+
+VARIABLES DISPONIBLES:
+- datos_empresa.cod_patronal
+- datos_empresa.nombre_empresa
+- periodo.fecha_inicio
+- periodo.fecha_fin
+- grupos[].nombre
+- grupos[].total
+- grupos[].detalles[].id_solicitud
+- grupos[].detalles[].fecha_solicitud
+- grupos[].detalles[].trabajador.ci
+- grupos[].detalles[].trabajador.nombre
+- grupos[].detalles[].trabajador.apellido
+- grupos[].detalles[].tipo_incapacidad
+- grupos[].detalles[].dias_incapacidad
+- grupos[].detalles[].monto_reembolso
+- grupos[].detalles[].fecha_inicio
+- grupos[].detalles[].fecha_fin
+- total_global
+- metadatos.fecha_reporte
+- metadatos.hora_reporte
+- metadatos.total_solicitudes
+- metadatos.nota
