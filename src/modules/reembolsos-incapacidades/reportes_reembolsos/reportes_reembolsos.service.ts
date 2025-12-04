@@ -457,4 +457,160 @@ export class ReportesReembolsosService {
       throw new BadRequestException(`Error al obtener los datos del reporte: ${error.message}`);
     }
   }
+
+// REPORTES MENSUALES --------------------------------------------------------------------------------------------
+
+/**
+ * Genera reporte mensual consolidado de reembolsos por empresa
+ * @param mes - Mes del reporte (1-12)
+ * @param gestion - Año del reporte
+ * @returns StreamableFile con el reporte PDF
+ */
+async generarReporteMensualReembolsos(
+  mes: number,
+  gestion: number,
+): Promise<StreamableFile> {
+  try {
+    console.log('=== INICIO generarReporteMensualReembolsos ===');
+    console.log('Parámetros:', { mes, gestion });
+
+    // Validar parámetros
+    if (!mes || mes < 1 || mes > 12) {
+      throw new BadRequestException('El mes debe ser un número entre 1 y 12');
+    }
+    if (!gestion || gestion < 2000 || gestion > 2100) {
+      throw new BadRequestException('El año debe ser un número válido');
+    }
+
+    // Obtener todas las solicitudes aprobadas (estado 2) del mes y año especificado
+    const solicitudes = await this.solicitudesRepo
+      .createQueryBuilder('solicitud')
+      .leftJoinAndSelect('solicitud.empresa', 'empresa')
+      .leftJoinAndSelect('solicitud.detalles', 'detalles')
+      .where('solicitud.mes = :mes', { mes: mes.toString().padStart(2, '0') })
+      .andWhere('solicitud.gestion = :gestion', { gestion: gestion.toString() })
+      .andWhere('solicitud.estado = :estado', { estado: 2 }) // Solo aprobadas
+      .orderBy('empresa.emp_nom', 'ASC')
+      .getMany();
+
+    console.log(`📊 Solicitudes encontradas: ${solicitudes.length}`);
+
+    if (solicitudes.length === 0) {
+      throw new BadRequestException(
+        `No se encontraron solicitudes aprobadas para el mes ${mes} del año ${gestion}`,
+      );
+    }
+
+    // Procesar datos por empresa
+    const empresasData = [];
+    let numeroReporte = 1;
+
+    for (const solicitud of solicitudes) {
+      // Calcular totales por tipo de incapacidad
+      const totalEnfermedad = solicitud.detalles
+        .filter((d) => d.tipo_incapacidad === 'ENFERMEDAD' || d.tipo_incapacidad === 'ENFERMEDAD_COMUN')
+        .reduce((sum, d) => sum + Number(d.monto_reembolso), 0);
+
+      const totalMaternidad = solicitud.detalles
+        .filter((d) => d.tipo_incapacidad === 'MATERNIDAD')
+        .reduce((sum, d) => sum + Number(d.monto_reembolso), 0);
+
+      const totalProfesional = solicitud.detalles
+        .filter(
+          (d) =>
+            d.tipo_incapacidad === 'PROFESIONAL' ||
+            d.tipo_incapacidad === 'RIESGO_PROFESIONAL' ||
+            d.tipo_incapacidad === 'ACCIDENTE DE TRABAJO' ||
+            d.tipo_incapacidad === 'ENFERMEDAD PROFESIONAL',
+        )
+        .reduce((sum, d) => sum + Number(d.monto_reembolso), 0);
+
+      const totalGeneral = totalEnfermedad + totalMaternidad + totalProfesional;
+
+      empresasData.push({
+        numero: numeroReporte++,
+        institucion: this.aMayusculas(solicitud.empresa.emp_nom),
+        cod_patronal: this.aMayusculas(solicitud.empresa.cod_patronal),
+        total_enfermedad_comun: this.redondearMonto(totalEnfermedad),
+        total_maternidad: this.redondearMonto(totalMaternidad),
+        total_riesgo_profesional: this.redondearMonto(totalProfesional),
+        total: this.redondearMonto(totalGeneral),
+      });
+    }
+
+    // Calcular totales generales
+    const totalesGenerales = {
+      total_enfermedad_comun: empresasData.reduce((sum, e) => sum + e.total_enfermedad_comun, 0),
+      total_maternidad: empresasData.reduce((sum, e) => sum + e.total_maternidad, 0),
+      total_riesgo_profesional: empresasData.reduce((sum, e) => sum + e.total_riesgo_profesional, 0),
+      total_general: empresasData.reduce((sum, e) => sum + e.total, 0),
+    };
+
+    // Preparar datos para el reporte
+    const data = {
+      periodo: {
+        mes: this.obtenerNombreMes(mes.toString().padStart(2, '0')),
+        gestion: gestion.toString(),
+      },
+      empresas: empresasData,
+      totales: {
+        total_empresas: empresasData.length,
+        total_enfermedad_comun: this.redondearMonto(totalesGenerales.total_enfermedad_comun),
+        total_maternidad: this.redondearMonto(totalesGenerales.total_maternidad),
+        total_riesgo_profesional: this.redondearMonto(totalesGenerales.total_riesgo_profesional),
+        total_general: this.redondearMonto(totalesGenerales.total_general),
+      },
+      metadatos: {
+        fecha_reporte: moment().tz('America/La_Paz').format('DD/MM/YYYY'),
+        hora_reporte: moment().tz('America/La_Paz').format('HH:mm:ss'),
+        nota: 'Reporte generado automáticamente por el sistema - CBES',
+      },
+    };
+
+    console.log('Datos para el reporte mensual:', JSON.stringify(data, null, 2));
+
+    // Verificar existencia de plantilla
+    const templatePath = path.resolve('reports/reporte_mensual_reembolsos.docx');
+    if (!fs.existsSync(templatePath)) {
+      throw new BadRequestException(`La plantilla en ${templatePath} no existe`);
+    }
+
+    // Generar el reporte con Carbone
+    return new Promise<StreamableFile>((resolve, reject) => {
+      carbone.render(
+        templatePath,
+        data,
+        { convertTo: 'pdf' },
+        (err, result) => {
+          if (err) {
+            console.error('Error en Carbone:', err);
+            return reject(
+              new BadRequestException(`Error al generar el reporte con Carbone: ${err.message}`),
+            );
+          }
+
+          console.log('Reporte mensual generado correctamente');
+
+          if (typeof result === 'string') {
+            result = Buffer.from(result, 'utf-8');
+          }
+
+          resolve(
+            new StreamableFile(result, {
+              type: 'application/pdf',
+              disposition: `attachment; filename=reporte_mensual_reembolsos_${mes}_${gestion}.pdf`,
+            }),
+          );
+        },
+      );
+    });
+  } catch (error) {
+    console.error('Error en generarReporteMensualReembolsos:', error);
+    throw new BadRequestException(`Error al generar el reporte: ${error.message}`);
+  }
+}
+
+
+
+
 }

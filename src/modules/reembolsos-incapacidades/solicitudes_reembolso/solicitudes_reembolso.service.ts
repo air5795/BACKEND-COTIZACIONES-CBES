@@ -188,6 +188,33 @@ export class ReembolsosIncapacidadesService {
         throw new BadRequestException('Solo se pueden agregar detalles a solicitudes en estado BORRADOR u OBSERVADO');
       }
 
+      // Log para depuración de los nuevos campos
+      console.log('📋 DATOS RECIBIDOS PARA CREAR DETALLE:');
+      console.log('   • fecha_atencion:', createDetalleDto.fecha_atencion);
+      console.log('   • hora_atencion:', createDetalleDto.hora_atencion);
+      console.log('   • fecha_emision_certificado:', createDetalleDto.fecha_emision_certificado);
+      console.log('   • fecha_sello_vigencia:', createDetalleDto.fecha_sello_vigencia);
+
+      // Calcular fecha_inicio_baja basada en hora_atencion si aplica
+      let fechaInicioBajaCalculada = new Date(createDetalleDto.fecha_inicio_baja);
+      
+      if (createDetalleDto.fecha_atencion && createDetalleDto.hora_atencion) {
+        // Extraer hora de hora_atencion (formato HH:mm o HH:mm:ss)
+        const horaParts = createDetalleDto.hora_atencion.split(':');
+        const hora = parseInt(horaParts[0], 10);
+        
+        // Si la hora es >= 20:00, fecha_inicio_baja es el día siguiente
+        if (hora >= 20) {
+          const fechaAtencion = new Date(createDetalleDto.fecha_atencion);
+          fechaInicioBajaCalculada = new Date(fechaAtencion);
+          fechaInicioBajaCalculada.setDate(fechaInicioBajaCalculada.getDate() + 1);
+          
+          console.log(`   ⏰ AJUSTE DE FECHA: Hora de atención ${createDetalleDto.hora_atencion} >= 20:00`);
+          console.log(`      • Fecha atención: ${createDetalleDto.fecha_atencion}`);
+          console.log(`      • Fecha inicio baja calculada: ${fechaInicioBajaCalculada.toISOString().split('T')[0]} (día siguiente)`);
+        }
+      }
+
       // Crear el detalle
       const nuevoDetalle = this.detalleRepo.create({
         id_solicitud_reembolso: createDetalleDto.id_solicitud_reembolso,
@@ -198,8 +225,12 @@ export class ReembolsosIncapacidadesService {
         nombres: createDetalleDto.nombres,
         matricula: createDetalleDto.matricula,
         tipo_incapacidad: createDetalleDto.tipo_incapacidad,
-        fecha_inicio_baja: new Date(createDetalleDto.fecha_inicio_baja),
+        fecha_inicio_baja: fechaInicioBajaCalculada,
         fecha_fin_baja: new Date(createDetalleDto.fecha_fin_baja),
+        fecha_atencion: createDetalleDto.fecha_atencion ? new Date(createDetalleDto.fecha_atencion) : null,
+        hora_atencion: createDetalleDto.hora_atencion || null,
+        fecha_emision_certificado: createDetalleDto.fecha_emision_certificado ? new Date(createDetalleDto.fecha_emision_certificado) : null,
+        fecha_sello_vigencia: createDetalleDto.fecha_sello_vigencia ? new Date(createDetalleDto.fecha_sello_vigencia) : null,
         dias_incapacidad: createDetalleDto.dias_incapacidad,
         dias_reembolso: createDetalleDto.dias_reembolso,
         // Nuevos campos del cálculo detallado
@@ -428,13 +459,13 @@ export class ReembolsosIncapacidadesService {
 
 // TODO : CALCULO DE BAJAS 
 
-//8.- CALCULAR REEMBOLSO CON DATOS REALES ----------------------------------------------------------------------------------------
+//8.- CALCULAR REEMBOLSO CON BAJAS REGISTRADAS EN SISTEMA  ----------------------------------------------------------------------------------------
  async calcularReembolsoConDatosReales(calcularDto: any) {
   try {
     const { matricula, cod_patronal, mes, gestion, baja_medica } = calcularDto;
 
     console.log('\n╔═══════════════════════════════════════════════════════════════════════════════╗');
-    console.log('║         INICIO DE CÁLCULO DE REEMBOLSO POR INCAPACIDAD                       ║');
+    console.log('║         INICIO DE CÁLCULO DE REEMBOLSO POR INCAPACIDAD AUTOMATICO Y BAJAS REGISTRADAS EN SISTEMA                       ║');
     console.log('╚═══════════════════════════════════════════════════════════════════════════════╝\n');
 
     // 1. Buscar datos del trabajador en planillas de aportes usando el método correcto
@@ -500,11 +531,40 @@ export class ReembolsosIncapacidadesService {
     console.log('   📊 ORIGEN DE LOS DATOS:');
     console.log(`      └─ Planilla de ${mes}/${gestion} - Código Patronal: ${cod_patronal}\n`);
 
-    // 4. Realizar cálculos según PDF (casos complejos)
-    const calculoDetallado = await this.calcularSegunCasosPDF(baja_medica, datosReales, mes, gestion);
+    // 4. Validar cotizaciones previas según tipo de incapacidad
+    const tipoIncapacidad = baja_medica.TIPO_BAJA?.trim() || 'ENFERMEDAD';
+    const validacionCotizaciones = await this.validarCotizacionesPrevias(
+      cod_patronal,
+      matricula,
+      mes,
+      gestion,
+      tipoIncapacidad
+    );
+
+    if (!validacionCotizaciones.cumple) {
+      console.log(`   ⚠️  VALIDACIÓN DE COTIZACIONES: ${validacionCotizaciones.mensaje}`);
+      throw new BadRequestException(
+        `No se puede calcular el reembolso: ${validacionCotizaciones.mensaje}`
+      );
+    }
+
+    console.log(`   ✓ VALIDACIÓN DE COTIZACIONES: ${validacionCotizaciones.mensaje}`);
+
+    // 5. Realizar cálculos según PDF (casos complejos)
+    const calculoDetallado: any = await this.calcularSegunCasosPDF(baja_medica, datosReales, mes, gestion);
+
+    // Agregar información de cotizaciones al cálculo
+    calculoDetallado.cotizaciones_previas_verificadas = validacionCotizaciones.cotizaciones_encontradas;
+    calculoDetallado.validacion_cotizaciones = {
+      cumple: validacionCotizaciones.cumple,
+      cotizaciones_encontradas: validacionCotizaciones.cotizaciones_encontradas,
+      cotizaciones_requeridas: validacionCotizaciones.cotizaciones_requeridas,
+      mensaje: validacionCotizaciones.mensaje,
+      cotizaciones: validacionCotizaciones.cotizaciones
+    };
 
     console.log('╔═══════════════════════════════════════════════════════════════════════════════╗');
-    console.log('║         CÁLCULO DE REEMBOLSO FINALIZADO EXITOSAMENTE                         ║');
+    console.log('║         CÁLCULO DE REEMBOLSO AUTOMATICO FINALIZADO EXITOSAMENTE                         ║');
     console.log('╚═══════════════════════════════════════════════════════════════════════════════╝\n');
 
     return {
@@ -589,16 +649,190 @@ async obtenerSalarioTrabajador(cod_patronal: string, mes: string, gestion: strin
   }
 }
 
+//11.- VALIDAR COTIZACIONES PREVIAS SEGÚN TIPO DE INCAPACIDAD ------------------------------------------------------------------------------------
+async validarCotizacionesPrevias(
+  cod_patronal: string, 
+  matricula: string, 
+  mesIncapacidad: string, 
+  gestionIncapacidad: string,
+  tipoIncapacidad: string
+) {
+  try {
+    console.log('\n🔍 VALIDANDO COTIZACIONES PREVIAS');
+    console.log('─'.repeat(80));
+    console.log(`   • Código Patronal: ${cod_patronal}`);
+    console.log(`   • Matrícula: ${matricula}`);
+    console.log(`   • Mes de la Solicitud: ${mesIncapacidad}`);
+    console.log(`   • Gestión de la Solicitud: ${gestionIncapacidad}`);
+    console.log(`   ⚠️  NOTA: Las cotizaciones se buscan ANTES del mes de la solicitud, NO de la fecha de inicio de la baja`);
+    console.log(`   • Tipo de Incapacidad: ${tipoIncapacidad}`);
+
+    // PROFESIONAL no requiere cotizaciones previas
+    if (tipoIncapacidad === 'PROFESIONAL' || tipoIncapacidad === 'RIESGO_PROFESIONAL') {
+      console.log('   ✓ Tipo PROFESIONAL: No requiere cotizaciones previas');
+      return {
+        valido: true,
+        cumple: true,
+        cotizaciones_encontradas: 0,
+        cotizaciones_requeridas: 0,
+        mensaje: 'Riesgo Profesional no requiere cotizaciones previas',
+        cotizaciones: []
+      };
+    }
+
+    // Determinar cotizaciones requeridas según tipo
+    // IMPORTANTE: Las cotizaciones deben ser CONSECUTIVAS antes del mes de la SOLICITUD (no de la baja)
+    // Ejemplo: Solicitud en marzo → necesita cotizaciones en febrero, enero, etc.
+    let cotizacionesRequeridas = 0;
+    let requiereConsecutivas = true; // Todas requieren consecutivas
+    
+    if (tipoIncapacidad === 'ENFERMEDAD') {
+      cotizacionesRequeridas = 2;
+      // Ejemplo: Solicitud en marzo → necesita febrero y enero (consecutivos)
+    } else if (tipoIncapacidad === 'MATERNIDAD') {
+      cotizacionesRequeridas = 4;
+      // Ejemplo: Solicitud en marzo → necesita febrero, enero, diciembre y noviembre (consecutivos)
+    }
+
+    console.log(`   • Cotizaciones requeridas: ${cotizacionesRequeridas}`);
+    console.log(`   • Requiere consecutivas: ${requiereConsecutivas ? 'SÍ' : 'NO'}`);
+
+    // Convertir mes y gestión a números
+    const mesIncapacidadNum = parseInt(mesIncapacidad);
+    const gestionIncapacidadNum = parseInt(gestionIncapacidad);
+
+    // Obtener cotizaciones previas (meses anteriores al mes de la SOLICITUD)
+    // IMPORTANTE: Se usa el mes de la solicitud, NO el mes de inicio de la baja
+    const cotizacionesPrevias = await this.obtenerCotizacionesPrevias(
+      cod_patronal,
+      matricula,
+      mesIncapacidadNum,
+      gestionIncapacidadNum,
+      cotizacionesRequeridas,
+      requiereConsecutivas
+    );
+
+    const cotizacionesEncontradas = cotizacionesPrevias.length;
+    const cumple = cotizacionesEncontradas >= cotizacionesRequeridas;
+
+    console.log(`   • Cotizaciones encontradas: ${cotizacionesEncontradas}`);
+    console.log(`   • ¿Cumple requisito?: ${cumple ? 'SÍ ✓' : 'NO ✗'}`);
+
+    let mensaje = '';
+    if (cumple) {
+      mensaje = `Cumple con el requisito: ${cotizacionesEncontradas} cotizaciones previas consecutivas encontradas`;
+    } else {
+      // Todas requieren consecutivas
+      const mesesFaltantes = cotizacionesRequeridas - cotizacionesEncontradas;
+      if (cotizacionesEncontradas === 0) {
+        mensaje = `No cumple: Se requieren ${cotizacionesRequeridas} cotizaciones previas consecutivas antes del mes de la solicitud. No se encontró ninguna cotización.`;
+      } else {
+        mensaje = `No cumple: Se requieren ${cotizacionesRequeridas} cotizaciones previas consecutivas antes del mes de la solicitud. Encontradas: ${cotizacionesEncontradas} (faltan ${mesesFaltantes} consecutivas)`;
+      }
+    }
+
+    return {
+      valido: true,
+      cumple,
+      cotizaciones_encontradas: cotizacionesEncontradas,
+      cotizaciones_requeridas: cotizacionesRequeridas,
+      mensaje,
+      cotizaciones: cotizacionesPrevias.map(c => ({
+        mes: c.mes,
+        gestion: c.gestion,
+        fecha_planilla: c.fecha_planilla
+      }))
+    };
+
+  } catch (error) {
+    console.error('\n❌ ERROR AL VALIDAR COTIZACIONES PREVIAS:', error.message);
+    return {
+      valido: false,
+      cumple: false,
+      cotizaciones_encontradas: 0,
+      cotizaciones_requeridas: 0,
+      mensaje: `Error al validar cotizaciones: ${error.message}`,
+      cotizaciones: []
+    };
+  }
+}
+
+//12.- OBTENER COTIZACIONES PREVIAS DE UN TRABAJADOR ------------------------------------------------------------------------------------
+private async obtenerCotizacionesPrevias(
+  cod_patronal: string,
+  matricula: string,
+  mesIncapacidad: number,
+  gestionIncapacidad: number,
+  cantidadRequerida: number,
+  requiereConsecutivas: boolean // Siempre true ahora, pero se mantiene por compatibilidad
+): Promise<Array<{ mes: number; gestion: number; fecha_planilla: Date }>> {
+  const cotizacionesEncontradas: Array<{ mes: number; gestion: number; fecha_planilla: Date }> = [];
+  
+  // IMPORTANTE: Todas las cotizaciones deben ser CONSECUTIVAS antes del mes de incapacidad
+  // Para ENFERMEDAD: buscar 2 meses consecutivos antes del mes de incapacidad
+  //   Ejemplo: Baja en enero → buscar diciembre y noviembre (consecutivos)
+  // Para MATERNIDAD: buscar 4 meses consecutivos antes del mes de incapacidad
+  //   Ejemplo: Baja en enero → buscar diciembre, noviembre, octubre y septiembre (consecutivos)
+  // Si falta alguna cotización consecutiva, se detiene la búsqueda y no cumple
+  
+  for (let i = 1; i <= cantidadRequerida; i++) {
+    let mesBuscar = mesIncapacidad - i;
+    let gestionBuscar = gestionIncapacidad;
+    
+    // Ajustar si el mes es menor a 1 (cambiar de año)
+    while (mesBuscar < 1) {
+      mesBuscar += 12;
+      gestionBuscar -= 1;
+    }
+    
+    const mesBuscarStr = mesBuscar.toString().padStart(2, '0');
+    
+    try {
+      const detalles = await this.planillasService.obtenerDetallesDeMes(
+        cod_patronal,
+        mesBuscarStr,
+        gestionBuscar.toString()
+      );
+      
+      // Verificar si el trabajador está en esta planilla
+      const trabajadorEncontrado = detalles.find(
+        (detalle: any) => detalle.matricula === matricula
+      );
+      
+      if (trabajadorEncontrado) {
+        const fechaPlanilla = new Date(`${gestionBuscar}-${mesBuscarStr}-01`);
+        cotizacionesEncontradas.push({
+          mes: mesBuscar,
+          gestion: gestionBuscar,
+          fecha_planilla: fechaPlanilla
+        });
+        console.log(`   ✓ Cotización encontrada: ${mesBuscarStr}/${gestionBuscar}`);
+      } else {
+        console.log(`   ✗ Sin cotización: ${mesBuscarStr}/${gestionBuscar}`);
+        // Si falta una cotización consecutiva, detener la búsqueda
+        // Ejemplo: Si busca diciembre, noviembre, octubre y falta noviembre → no cumple
+        break;
+      }
+    } catch (error) {
+      console.log(`   ✗ Error al buscar cotización ${mesBuscarStr}/${gestionBuscar}: ${error.message}`);
+      // Si hay error al buscar una cotización consecutiva, detener la búsqueda
+      break;
+    }
+  }
+  
+  return cotizacionesEncontradas;
+}
+
 //9.- CALCULAR REEMBOLSO EN MODO PRUEBA (Sin validar planilla) ----------------------------------------------------------------------------------------
 async calcularReembolsoPrueba(calcularDto: any) {
   try {
     const { datos_trabajador, baja_medica, mes, gestion } = calcularDto;
 
     console.log('\n╔═══════════════════════════════════════════════════════════════════════════════╗');
-    console.log('║         🧪 MODO PRUEBA: CÁLCULO DE REEMBOLSO SIN VALIDAR PLANILLA           ║');
+    console.log('║         CÁLCULO DE REEMBOLSO INTRODUDIENDO DATOS MANUALMENTE                  ║');
     console.log('╚═══════════════════════════════════════════════════════════════════════════════╝\n');
 
-    console.log('👤 DATOS DEL TRABAJADOR (MODO PRUEBA):');
+    console.log('👤 DATOS DEL TRABAJADOR (MODO MANUAL):');
     console.log('─'.repeat(80));
     console.log(`   • Nombre Completo: ${datos_trabajador.apellido_paterno} ${datos_trabajador.apellido_materno} ${datos_trabajador.nombres}`);
     console.log(`   • CI: ${datos_trabajador.ci}`);
@@ -611,6 +845,10 @@ async calcularReembolsoPrueba(calcularDto: any) {
     console.log(`   • Tipo: ${baja_medica.tipo_baja}`);
     console.log(`   • Fecha Inicio: ${baja_medica.fecha_inicio}`);
     console.log(`   • Fecha Fin: ${baja_medica.fecha_fin}`);
+    console.log(`   • Fecha Atención: ${baja_medica.fecha_atencion || 'N/A'}`);
+    console.log(`   • Hora Atención: ${baja_medica.hora_atencion || 'N/A'}`);
+    console.log(`   • Fecha Emisión Certificado: ${baja_medica.fecha_emision_certificado || 'N/A'}`);
+    console.log(`   • Fecha Sello Vigencia: ${baja_medica.fecha_sello_vigencia || 'N/A'}`);
     console.log(`   • Días de impedimento: ${baja_medica.dias_impedimento}`);
     console.log(`   • Mes/Gestión reembolso: ${mes}/${gestion}`);
     console.log('');
@@ -628,7 +866,7 @@ async calcularReembolsoPrueba(calcularDto: any) {
     console.log(`   • Valor final extraído: ${diasPagados}`);
     console.log('');
     
-    console.log(`📊 MODO PRUEBA - Días pagados recibidos: ${diasPagados}`);
+    console.log(`📊 MODO MANUAL - Días pagados recibidos: ${diasPagados}`);
 
     // Preparar datos en el formato que espera calcularSegunCasosPDF
     const datosWorkerFormateados = {
@@ -659,6 +897,34 @@ async calcularReembolsoPrueba(calcularDto: any) {
       ASE_MAT: datos_trabajador.matricula
     };
 
+    // Validar cotizaciones previas según tipo de incapacidad
+    const tipoIncapacidad = baja_medica.tipo_baja?.trim() || 'ENFERMEDAD';
+    
+    // Obtener código patronal del DTO si está disponible, o usar un valor por defecto
+    const codPatronalParaValidacion = calcularDto.cod_patronal || '';
+    
+    // Solo validar si tenemos código patronal (modo real)
+    if (codPatronalParaValidacion && datos_trabajador.matricula) {
+      const validacionCotizaciones = await this.validarCotizacionesPrevias(
+        codPatronalParaValidacion,
+        datos_trabajador.matricula,
+        mes,
+        gestion,
+        tipoIncapacidad
+      );
+
+      if (!validacionCotizaciones.cumple) {
+        console.log(`   ⚠️  VALIDACIÓN DE COTIZACIONES: ${validacionCotizaciones.mensaje}`);
+        throw new BadRequestException(
+          `No se puede calcular el reembolso: ${validacionCotizaciones.mensaje}`
+        );
+      }
+
+      console.log(`   ✓ VALIDACIÓN DE COTIZACIONES: ${validacionCotizaciones.mensaje}`);
+    } else {
+      console.log('   ⚠️  Modo prueba sin código patronal: No se validan cotizaciones previas');
+    }
+
     // Usar el mismo método de cálculo que el modo real CON MES Y GESTIÓN
     const calculoDetallado = await this.calcularSegunCasosPDF(
       bajaMedicaFormateada, 
@@ -668,18 +934,18 @@ async calcularReembolsoPrueba(calcularDto: any) {
     );
 
     console.log('╔═══════════════════════════════════════════════════════════════════════════════╗');
-    console.log('║         🧪 CÁLCULO DE PRUEBA FINALIZADO EXITOSAMENTE                        ║');
+    console.log('║         CÁLCULO DE MANUAL FINALIZADO EXITOSAMENTE                        ║');
     console.log('╚═══════════════════════════════════════════════════════════════════════════════╝\n');
 
     return {
-      mensaje: 'Cálculo de prueba realizado exitosamente',
+      mensaje: 'Cálculo realizado exitosamente',
       datos_trabajador: datosWorkerFormateados,
       baja_medica: bajaMedicaFormateada,
       calculo: calculoDetallado
     };
 
   } catch (error) {
-    console.error('\n❌ ERROR EN EL CÁLCULO DE PRUEBA:', error.message);
+    console.error('\n❌ ERROR EN EL CÁLCULO DE MANUAL:', error.message);
     console.error('═'.repeat(80) + '\n');
     throw error;
   }
@@ -848,13 +1114,30 @@ private calcularDiasEnMes(fechaInicioBaja: Date, fechaFinBaja: Date, mesReembols
                                    (gestionBajaInicio === gestionNum && mesBajaInicio < mesNum);
   
   if (tipoIncapacidad === 'ENFERMEDAD') {
-    // Para enfermedad común, los 3 días de carencia solo se descuentan en el PRIMER mes de la baja
+    // Para enfermedad común, los 3 días de carencia se descuentan del primer mes con días a reembolsar
     if (bajaEmpiezaEnMesAnterior) {
-      // Si la baja empezó en un mes anterior, NO se descuentan los 3 días en este mes
-      diasReembolso = diasTotalesIncapacidad;
-      explicacionCalculo = `Enfermedad común (continúa de mes anterior): ${diasTotalesIncapacidad} días (sin descuento, ya se aplicó en el mes de inicio)`;
+      // Si la baja empezó en un mes anterior, calcular cuántos días hay en ese mes anterior
+      const fechaInicioMesAnterior = new Date(gestionBajaInicio, mesBajaInicio - 1, 1);
+      const fechaFinMesAnterior = new Date(gestionBajaInicio, mesBajaInicio, 0); // Último día del mes anterior
+      const fechaInicioBajaDate = new Date(fechaInicioBaja);
+      fechaInicioBajaDate.setHours(0, 0, 0, 0);
+      
+      // Calcular días en el mes anterior (desde inicio de baja hasta fin de ese mes)
+      const diasEnMesAnterior = Math.max(0, Math.floor((fechaFinMesAnterior.getTime() - fechaInicioBajaDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+      
+      // Si los días del mes anterior son menos de 3, se descuentan los 3 días completos del mes actual
+      // Si los días del mes anterior son 3 o más, los 3 días de carencia ya se aplicaron en el mes anterior
+      if (diasEnMesAnterior < 3) {
+        // Se descuentan los 3 días completos de este mes (regla: carencia siempre se descuenta del primer mes con días suficientes)
+        diasReembolso = Math.max(0, diasTotalesIncapacidad - 3);
+        explicacionCalculo = `Enfermedad común (continúa de mes anterior): ${diasTotalesIncapacidad} días - 3 días de carencia (${diasEnMesAnterior} días en mes anterior < 3 días requeridos) = ${diasReembolso} días`;
+      } else {
+        // Los 3 días de carencia ya se aplicaron completamente en el mes anterior
+        diasReembolso = diasTotalesIncapacidad;
+        explicacionCalculo = `Enfermedad común (continúa de mes anterior): ${diasTotalesIncapacidad} días (sin descuento, los 3 días de carencia ya se aplicaron en el mes anterior con ${diasEnMesAnterior} días)`;
+      }
     } else {
-      // Si la baja empieza en este mes, se descuentan los 3 días
+      // Si la baja empieza en este mes, se descuentan los 3 días completos
       diasReembolso = Math.max(0, diasTotalesIncapacidad - 3);
       explicacionCalculo = `Enfermedad común (inicia en este mes): ${diasTotalesIncapacidad} días - 3 días de carencia = ${diasReembolso} días`;
     }
@@ -934,7 +1217,17 @@ private calcularDiasEnMes(fechaInicioBaja: Date, fechaFinBaja: Date, mesReembols
   if (tipoIncapacidad === 'ENFERMEDAD') {
     console.log(`      ├─ Mes de inicio de la baja: ${mesBajaInicio}/${gestionBajaInicio}`);
     console.log(`      ├─ Mes de reembolso: ${mesNum}/${gestionNum}`);
-    console.log(`      └─ ¿Baja empezó en mes anterior?: ${bajaEmpiezaEnMesAnterior ? 'SÍ (no se descuentan 3 días)' : 'NO (se descuentan 3 días)'}`);
+    if (bajaEmpiezaEnMesAnterior) {
+      const fechaInicioMesAnterior = new Date(gestionBajaInicio, mesBajaInicio - 1, 1);
+      const fechaFinMesAnterior = new Date(gestionBajaInicio, mesBajaInicio, 0);
+      const fechaInicioBajaDate = new Date(fechaInicioBaja);
+      fechaInicioBajaDate.setHours(0, 0, 0, 0);
+      const diasEnMesAnterior = Math.max(0, Math.floor((fechaFinMesAnterior.getTime() - fechaInicioBajaDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+      console.log(`      ├─ Días en mes anterior: ${diasEnMesAnterior} días`);
+      console.log(`      └─ ¿Se descuentan 3 días?: ${diasEnMesAnterior < 3 ? 'SÍ (mes anterior tiene menos de 3 días)' : 'NO (los 3 días ya se aplicaron en mes anterior)'}`);
+    } else {
+      console.log(`      └─ ¿Baja empezó en mes anterior?: NO (se descuentan 3 días)`);
+    }
   }
   console.log('');
   

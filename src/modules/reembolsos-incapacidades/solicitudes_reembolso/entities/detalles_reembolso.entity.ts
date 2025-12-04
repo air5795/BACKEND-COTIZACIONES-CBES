@@ -36,6 +36,18 @@ export class DetallesReembolso {
   @Column({ type: 'date' })
   fecha_fin_baja: Date;
 
+  @Column({ type: 'date', nullable: true })
+  fecha_atencion: Date;
+
+  @Column({ type: 'time', nullable: true })
+  hora_atencion: string; // Formato HH:mm:ss (ej: '20:00:00')
+
+  @Column({ type: 'date', nullable: true })
+  fecha_emision_certificado: Date;
+
+  @Column({ type: 'date', nullable: true })
+  fecha_sello_vigencia: Date;
+
   @Column({ type: 'integer' })
   dias_incapacidad: number;
 

@@ -143,6 +143,10 @@ async calcularReembolsoPrueba(@Body() calcularDto: {
     tipo_baja: string;
     fecha_inicio: string;
     fecha_fin: string;
+    fecha_atencion?: string;
+    hora_atencion?: string; // Formato HH:mm:ss
+    fecha_emision_certificado?: string;
+    fecha_sello_vigencia?: string;
     dias_impedimento: number;
     especialidad?: string;
     medico?: string;
@@ -172,6 +176,33 @@ async obtenerSalarioTrabajador(
     mesFormateado,
     gestion,
     matricula
+  );
+}
+
+//11.- VALIDAR COTIZACIONES PREVIAS SEGÚN TIPO DE INCAPACIDAD ------------------------------------------------------------------------------------
+@Get('validar-cotizaciones/:cod_patronal/:matricula/:mes/:gestion/:tipo_incapacidad')
+@ApiOperation({ summary: '11.- Validar cotizaciones previas según tipo de incapacidad' })
+@ApiParam({ name: 'cod_patronal', description: 'Código patronal de la empresa', type: String })
+@ApiParam({ name: 'matricula', description: 'Matrícula del trabajador', type: String })
+@ApiParam({ name: 'mes', description: 'Mes de la incapacidad', type: String })
+@ApiParam({ name: 'gestion', description: 'Gestión (año) de la incapacidad', type: String })
+@ApiParam({ name: 'tipo_incapacidad', description: 'Tipo de incapacidad (ENFERMEDAD, MATERNIDAD, PROFESIONAL)', type: String })
+@ApiResponse({ status: 200, description: 'Validación realizada exitosamente' })
+async validarCotizacionesPrevias(
+  @Param('cod_patronal') cod_patronal: string,
+  @Param('matricula') matricula: string,
+  @Param('mes') mes: string,
+  @Param('gestion') gestion: string,
+  @Param('tipo_incapacidad') tipo_incapacidad: string
+) {
+  const mesFormateado = mes.padStart(2, '0');
+  
+  return this.service.validarCotizacionesPrevias(
+    cod_patronal,
+    matricula,
+    mesFormateado,
+    gestion,
+    tipo_incapacidad
   );
 }
 

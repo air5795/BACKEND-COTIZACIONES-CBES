@@ -1,7 +1,8 @@
-import { Controller, Get, Query, BadRequestException, Res } from '@nestjs/common';
+import { Controller, Get, Query, BadRequestException, Res , StreamableFile } from '@nestjs/common';
 import { Response } from 'express';
 import { ReportesReembolsosService } from './reportes_reembolsos.service';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+
 
 @ApiTags('REPORTES (Reembolsos de Incapacidades)')
 @ApiBearerAuth('JWT-auth') 
@@ -60,4 +61,36 @@ export class ReportesReembolsosController {
       throw new BadRequestException(`Error al obtener los datos del reporte: ${error.message}`);
     }
   }
+
+
+/**
+ * Genera reporte mensual consolidado de reembolsos
+ * GET /reportes-reembolsos/reporte-mensual?mes=2&gestion=2025
+ */
+
+
+@Get('reporte-mensual')
+async generarReporteMensual(
+  @Query('mes') mes: string,
+  @Query('gestion') gestion: string,
+): Promise<StreamableFile> {
+  console.log('=== ENDPOINT: generarReporteMensual ===');
+  console.log('Query params:', { mes, gestion });
+
+  // Validar que los parámetros estén presentes
+  if (!mes || !gestion) {
+    throw new BadRequestException('Los parámetros mes y gestion son obligatorios');
+  }
+
+  // Convertir a números
+  const mesNum = parseInt(mes, 10);
+  const gestionNum = parseInt(gestion, 10);
+
+  // Validar que sean números válidos
+  if (isNaN(mesNum) || isNaN(gestionNum)) {
+    throw new BadRequestException('Los parámetros mes y gestion deben ser números válidos');
+  }
+
+  return this.reportesService.generarReporteMensualReembolsos(mesNum, gestionNum);
+}
 }

@@ -1,5 +1,5 @@
 // src/modules/reembolsos-incapacidades/solicitudes_reembolso/dto/create-detalles_reembolso.dto.ts
-import { IsString, IsInt, IsOptional, Min, IsNumber, IsDateString, MaxLength, IsEnum } from 'class-validator';
+import { IsString, IsInt, IsOptional, Min, IsNumber, IsDateString, MaxLength, IsEnum, Matches } from 'class-validator';
 
 export enum TipoIncapacidad {
   ENFERMEDAD_COMUN = 'ENFERMEDAD_COMUN',
@@ -50,6 +50,23 @@ export class CreateDetalleReembolsoDto {
 
   @IsDateString()
   fecha_fin_baja: string;
+
+  @IsDateString()
+  @IsOptional()
+  fecha_atencion?: string;
+
+  @IsString()
+  @IsOptional()
+  @Matches(/^([0-1][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/, { message: 'hora_atencion debe tener formato HH:mm o HH:mm:ss' })
+  hora_atencion?: string; // Formato HH:mm o HH:mm:ss
+
+  @IsDateString()
+  @IsOptional()
+  fecha_emision_certificado?: string;
+
+  @IsDateString()
+  @IsOptional()
+  fecha_sello_vigencia?: string;
 
   @IsInt()
   @Min(0)

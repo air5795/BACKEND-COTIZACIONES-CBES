@@ -1,0 +1,35 @@
+# Dockerfile.prod - Optimizado para producción
+FROM node:21-alpine3.19
+
+RUN apk add --no-cache \
+    libreoffice \
+    libstdc++ \
+    ttf-dejavu \
+    fontconfig \
+    && apk add --no-cache --virtual .build-deps bash \
+    && rm -rf /var/cache/apk/*
+
+WORKDIR /usr/src/app
+
+# Crear carpetas necesarias
+RUN mkdir -p /usr/src/app/pagos-aportes/pagos && \
+    chown -R node:node /usr/src/app/pagos-aportes/pagos
+
+# Copiar solo package.json y lock para instalar dependencias
+COPY package*.json ./
+
+# Instalar solo dependencias de producción
+RUN npm install --omit=dev
+
+# Copiar el build final y recursos
+COPY dist ./dist
+COPY reports ./reports
+COPY recursos ./recursos
+
+ENV PATH="/usr/lib/libreoffice/program:${PATH}"
+
+# Exponer puerto de producción
+EXPOSE 4001
+
+# Comando de ejecución
+CMD ["node", "dist/main.js"]
