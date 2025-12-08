@@ -2020,9 +2020,10 @@ async compararPlanillas(cod_patronal: string, mesAnterior: string, gestion: stri
     throw new Error(`No se encontraron datos para el mes actual (${mesActual}) en la gestión ${gestion}.`);
   }
 
-  const altas = [];
-  const bajasNoEncontradas = [];
-  const bajasPorRetiro = [];
+  const altasReales = [];           // Completamente nuevos
+  const renovaciones = [];          // Tenían fecha de retiro pero renovaron
+  const bajasNoEncontradas = [];    // No encontrados en el mes actual
+  const bajasPorRetiro = [];        // Tienen fecha de retiro en el mes actual
 
   // Crear mapas con trabajadores consolidados
   const trabajadoresMesAnterior = new Map(
@@ -2043,29 +2044,31 @@ async compararPlanillas(cod_patronal: string, mesAnterior: string, gestion: stri
   const mesAnteriorFin = new Date(mesAnteriorInicio);
   mesAnteriorFin.setMonth(mesAnteriorFin.getMonth() + 1);
 
-  // Detectar altas basadas en ausencia en el mes anterior o reingreso
+  // Detectar altas REALES y RENOVACIONES
   trabajadoresActualesConsolidados.forEach((trabajadorActual) => {
     console.log(`👤 Analizando trabajador ${trabajadorActual.ci}`);
 
     // Verificar si el trabajador no estaba en el mes anterior
     const trabajadorAnterior = trabajadoresMesAnterior.get(trabajadorActual.ci);
+    
     if (!trabajadorAnterior) {
-      console.log(`   ✅ ALTA detectada (nuevo trabajador)`);
-      altas.push(trabajadorActual);
+      // No estaba en el mes anterior = ALTA REAL (completamente nuevo)
+      console.log(`   ✅ ALTA REAL detectada (trabajador completamente nuevo)`);
+      altasReales.push(trabajadorActual);
     } else if (trabajadorAnterior.fecha_retiro) {
-      // Si estaba en el mes anterior pero tenía fecha de retiro, verificar reingreso
+      // Si estaba en el mes anterior pero tenía fecha de retiro = RENOVACIÓN
       const fechaRetiroAnterior = new Date(trabajadorAnterior.fecha_retiro);
       console.log(`   ↳ Tenía fecha de retiro anterior: ${fechaRetiroAnterior}`);
 
-      // Considerar alta si la fecha de retiro es anterior o igual al fin del mes anterior
+      // Considerar renovación si la fecha de retiro es anterior o igual al fin del mes anterior
       if (fechaRetiroAnterior <= mesAnteriorFin) {
-        console.log(`   ✅ ALTA detectada (reingreso)`);
-        altas.push(trabajadorActual);
+        console.log(`   🔄 RENOVACIÓN detectada (reingreso después de retiro)`);
+        renovaciones.push(trabajadorActual);
       }
     }
   });
 
-  // Detectar bajas por retiro
+  // Detectar bajas por retiro en el mes actual
   trabajadoresActualesConsolidados.forEach((trabajadorActual) => {
     if (trabajadorActual.fecha_retiro) {
       const fechaRetiroActual = new Date(trabajadorActual.fecha_retiro);
@@ -2077,7 +2080,7 @@ async compararPlanillas(cod_patronal: string, mesAnterior: string, gestion: stri
     }
   });
 
-  // Detectar bajas por no encontrado
+  // Detectar bajas por no encontrado (trabajadores del mes anterior que no están en el actual)
   trabajadoresAnterioresConsolidados.forEach((trabajadorAnterior) => {
     if (!trabajadoresMesActual.has(trabajadorAnterior.ci)) {
       console.log(`👤 BAJA por no encontrado - trabajador ${trabajadorAnterior.ci}`);
@@ -2087,7 +2090,8 @@ async compararPlanillas(cod_patronal: string, mesAnterior: string, gestion: stri
 
   console.log(`
 📈 RESUMEN DE COMPARACIÓN (INCLUYENDO ADICIONALES):
-   ✅ Altas detectadas: ${altas.length}
+   ✅ Altas reales (completamente nuevos): ${altasReales.length}
+   🔄 Renovaciones (reingresos después de retiro): ${renovaciones.length}
    ❌ Bajas por trabajador no encontrado: ${bajasNoEncontradas.length}
    ❌ Bajas por fecha de retiro: ${bajasPorRetiro.length}
     Total trabajadores mes anterior: ${trabajadoresAnterioresConsolidados.length}
@@ -2099,23 +2103,25 @@ async compararPlanillas(cod_patronal: string, mesAnterior: string, gestion: stri
   `);
 
   return {
-    altas,
+    altas: altasReales,                 // Altas reales - completamente nuevos
+    renovaciones: renovaciones,         // Renovaciones - tenían retiro pero renovaron
     bajas: {
-      noEncontradas: bajasNoEncontradas,
-      porRetiro: bajasPorRetiro,
+      noEncontradas: bajasNoEncontradas, // Bajas por no encontrado
+      porRetiro: bajasPorRetiro,         // Bajas por retiro en mes actual
     },
     resumen: {
       totalTrabajadoresMesAnterior: trabajadoresAnterioresConsolidados.length, // Trabajadores únicos
       totalTrabajadoresMesActual: trabajadoresActualesConsolidados.length,     // Trabajadores únicos
       totalRegistrosMesAnterior: detallesMesAnterior.length,                   // Registros totales
       totalRegistrosMesActual: detallesMesActual.length,                       // Registros totales
-      totalAltas: altas.length,
+      totalAltasReales: altasReales.length,                                    // Solo altas reales
+      totalRenovaciones: renovaciones.length,                                  // Solo renovaciones
       totalBajas: bajasNoEncontradas.length + bajasPorRetiro.length,
       // Nueva info: trabajadores con múltiples cargos
       trabajadoresMultiplesCargosAnterior: trabajadoresAnterioresConsolidados.filter(t => t._registros_consolidados > 1).length,
       trabajadoresMultiplesCargosActual: trabajadoresActualesConsolidados.filter(t => t._registros_consolidados > 1).length
     },
-    mensaje: 'Comparación de planillas completada con consolidación automática por CI.',
+    mensaje: 'Comparación de planillas completada con separación de altas reales y renovaciones.',
   };
 }
 // ?
