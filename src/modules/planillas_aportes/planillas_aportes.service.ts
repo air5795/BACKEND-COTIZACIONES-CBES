@@ -2063,7 +2063,12 @@ async compararPlanillas(cod_patronal: string, mesAnterior: string, gestion: stri
       // Considerar renovación si la fecha de retiro es anterior o igual al fin del mes anterior
       if (fechaRetiroAnterior <= mesAnteriorFin) {
         console.log(`   🔄 RENOVACIÓN detectada (reingreso después de retiro)`);
-        renovaciones.push(trabajadorActual);
+        // Agregar trabajador actual pero con la fecha de retiro anterior
+        renovaciones.push({
+          ...trabajadorActual,
+          fecha_retiro_anterior: trabajadorAnterior.fecha_retiro, // Fecha de retiro del mes anterior
+          fecha_retiro: null // Limpiar la fecha de retiro del mes actual
+        });
       }
     }
   });
